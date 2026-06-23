@@ -1,0 +1,16 @@
+# Python environment and compilation
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Node dependencies and production builds
+node_modules/
+dist/
+
+# Local FastF1 file data cache
+fastf1_cache/
+
+# IDE / OS specific files
+.vscode/
+.DS_Store
