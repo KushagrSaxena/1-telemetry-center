@@ -1,33 +1,35 @@
 import { useState, useEffect } from 'react';
 
 export default function App() {
-  // Operational mode: 'live' or 'history'
   const [mode, setMode] = useState('live');
-  
-  // Archival search state
   const [year, setYear] = useState('2023');
   const [roundNum, setRoundNum] = useState('1');
 
-  // Rigid defensive state design payload fallback matching backend signatures
-  const [liveData, setLiveData] = useState({ laps: [], positions: [] });
+  const [liveData, setLiveData] = useState({
+    laps: [],
+    positions: [],
+    circuit_name: '',
+    location: '',
+    sessions: null
+  });
   const [statusMessage, setStatusMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Sync Logic Layer
   useEffect(() => {
     let ws = null;
 
     if (mode === 'live') {
       setLoading(false);
-      // Connect to stateful Live Hub WebSocket endpoint
       ws = new WebSocket('ws://localhost:8000/ws/live');
 
       ws.onmessage = (event) => {
         const payload = JSON.parse(event.data);
-        // Explicitly fallback to avoid uncaught component crashes if empty
         setLiveData({
           positions: payload.positions || [],
-          laps: payload.laps || []
+          laps: payload.laps || [],
+          circuit_name: payload.circuit_name || '',
+          location: payload.location || '',
+          sessions: payload.sessions || null,
         });
         setStatusMessage(payload.status || '');
       };
@@ -40,18 +42,15 @@ export default function App() {
         setStatusMessage('Disconnected from live hub.');
       };
     } else {
-      // Clear data when switching to historical records mode
-      setLiveData({ laps: [], positions: [] });
+      setLiveData({ laps: [], positions: [], circuit_name: '', location: '', sessions: null });
       setStatusMessage('');
     }
 
-    // Clean up connections on mode changes or unmount
     return () => {
       if (ws) ws.close();
     };
   }, [mode]);
 
-  // Fetch History Records from FastF1 endpoint
   const fetchHistoricalData = async () => {
     setLoading(true);
     setStatusMessage('');
@@ -61,11 +60,14 @@ export default function App() {
       
       if (payload.error) {
         setStatusMessage(`Error: ${payload.error}`);
-        setLiveData({ laps: [], positions: [] });
+        setLiveData({ laps: [], positions: [], circuit_name: '', location: '', sessions: null });
       } else {
         setLiveData({
           positions: payload.positions || [],
-          laps: payload.laps || []
+          laps: payload.laps || [],
+          circuit_name: '',
+          location: '',
+          sessions: null
         });
       }
     } catch (err) {
@@ -77,7 +79,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0b0c10] text-slate-100 p-6 font-mono selection:bg-[#e10600]">
-      {/* Broadcast Header */}
       <header className="border-b-2 border-[#e10600] pb-4 mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-white flex items-center gap-2">
@@ -87,7 +88,6 @@ export default function App() {
           <p className="text-xs text-slate-400 uppercase mt-1 tracking-widest">Real-Time Sync & Archival Core</p>
         </div>
 
-        {/* Operational Mode Toggle */}
         <div className="flex bg-[#1f242d] p-1 rounded border border-slate-700">
           <button
             onClick={() => setMode('live')}
@@ -108,7 +108,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Control Bar for Historical Records */}
       {mode === 'history' && (
         <div className="bg-[#141822] border border-slate-800 p-4 rounded mb-6 flex gap-4 items-end animate-fadeIn">
           <div>
@@ -139,34 +138,69 @@ export default function App() {
         </div>
       )}
 
-      {/* Connection & App Status Toast */}
       {statusMessage && (
         <div className="bg-amber-950/40 border border-amber-600/50 text-amber-400 px-4 py-3 rounded text-xs font-bold uppercase tracking-wide mb-6">
           ⚠️ Status: {statusMessage}
         </div>
       )}
 
-      {/* Telemetry Display Grid */}
       {loading ? (
         <div className="text-center py-20 border border-dashed border-slate-800 rounded">
           <div className="text-[#e10600] font-black text-xl tracking-widest animate-pulse">PARSING FASTF1 CACHE DATA DATASETS...</div>
         </div>
       ) : (liveData.positions || []).length === 0 ? (
-        <div className="text-center py-20 border border-dashed border-slate-800 rounded bg-[#141822]/40">
-          <p className="text-slate-400 text-sm uppercase tracking-wider">No active data rows found inside this cluster view.</p>
-          {mode === 'live' && <p className="text-xs text-[#e10600] mt-2 font-bold uppercase">Waiting for track session start signal.</p>}
+        <div className="space-y-6">
+          {mode === 'live' && liveData.circuit_name && (
+            <div className="bg-[#141822] border border-slate-800 rounded p-6">
+              <div className="border-b border-slate-800 pb-3 mb-4">
+                <span className="text-[10px] font-black uppercase text-[#e10600] tracking-widest block mb-1">UPCOMING EVENT SCHEDULE</span>
+                <h2 className="text-xl font-black text-white uppercase tracking-tight">{liveData.circuit_name}</h2>
+                <p className="text-xs text-slate-400 uppercase mt-0.5 tracking-wider">{liveData.location}</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                {liveData.sessions && Object.entries(liveData.sessions).map(([sessionName, utcString]) => {
+                  if (!utcString) return null;
+                  const sessionDate = new Date(utcString);
+
+                  return (
+                    <div key={sessionName} className="bg-[#1f242d] border border-slate-800 p-3 rounded">
+                      <span className="text-xs font-black uppercase text-slate-400 block border-b border-slate-800/60 pb-1 mb-2 tracking-wide">
+                        {sessionName}
+                      </span>
+                      <div className="space-y-2 font-sans">
+                        <div>
+                          <span className="text-[9px] font-bold text-[#e10600] uppercase tracking-wider block">Your Time</span>
+                          <span className="text-xs font-bold text-white tracking-tight">
+                            {sessionDate.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">GMT / UTC</span>
+                          <span className="text-xs font-medium text-slate-300 tracking-tight">
+                            {sessionDate.toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
+          <div className="text-center py-16 border border-dashed border-slate-800 rounded bg-[#141822]/40">
+            <p className="text-slate-400 text-sm uppercase tracking-wider">No active live data streams detected.</p>
+            {mode === 'live' && <p className="text-xs text-[#e10600] mt-2 font-bold uppercase">Telemetry frames map onto timing tower once track segment goes green.</p>}
+          </div>
         </div>
       ) : (
         <main className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Main Scoring Grid Block */}
           <section className="xl:col-span-2 bg-[#141822] border border-slate-800 rounded p-4">
             <h2 className="text-sm font-black uppercase text-slate-400 tracking-wider mb-3 pb-2 border-b border-slate-800">
               Timing Tower Leaderboard
             </h2>
             <div className="space-y-2">
-              {/* Short circuit protected mapping execution */}
               {(liveData.positions || []).map((driver) => {
-                // Find matching lap item using identical driver number keys
                 const matchingLap = (liveData.laps || []).find(l => l.driver_number === driver.driver_number);
                 
                 return (
@@ -175,18 +209,15 @@ export default function App() {
                     className="flex items-center bg-[#1f242d] rounded overflow-hidden border-l-4 transition-transform duration-100 hover:scale-[1.005]"
                     style={{ borderLeftColor: driver.team_color || '#ffffff' }}
                   >
-                    {/* Position Code Tag */}
                     <div className="bg-black/40 text-center w-14 py-3 font-black text-lg text-slate-300 border-r border-slate-800/80">
-                      P{driver.position}
+                      {isNaN(driver.position) ? driver.position : `P${driver.position}`}
                     </div>
-                    {/* Driver & Constructors Identity */}
                     <div className="flex-1 px-4 flex items-center justify-between">
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="font-black text-base tracking-tight text-white">{driver.full_name}</span>
                           <span className="text-xs text-slate-400 font-bold">#{driver.driver_number}</span>
                         </div>
-                        {/* Dynamic background-alpha team color pill */}
                         <span 
                           className="inline-block text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded mt-0.5"
                           style={{ backgroundColor: `${driver.team_color}25`, color: driver.team_color }}
@@ -195,7 +226,6 @@ export default function App() {
                         </span>
                       </div>
                       
-                      {/* Lap Duration String Component */}
                       <div className="text-right">
                         <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Lap Time</span>
                         <span className="font-mono text-sm font-bold text-white tracking-wide">
@@ -209,7 +239,6 @@ export default function App() {
             </div>
           </section>
 
-          {/* Quick Analytics Summary Panel */}
           <section className="bg-[#141822] border border-slate-800 rounded p-4 h-fit">
             <h2 className="text-sm font-black uppercase text-slate-400 tracking-wider mb-3 pb-2 border-b border-slate-800">
               Telemetry Summary
