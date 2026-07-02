@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 
 export default function App() {
   const [mode, setMode] = useState('live');
-  const [activeTab, setActiveTab] = useState('timing'); // 'timing' | 'upgrades' | 'news'
+  const [activeTab, setActiveTab] = useState('timing'); // 'timing' | 'upgrades' | 'news' | 'predictions'
   const [year, setYear] = useState('2026');
   const [roundNum, setRoundNum] = useState('1');
   const [news, setNews] = useState([]);
   const [upgrades, setUpgrades] = useState([]);
+  const [predictions, setPredictions] = useState([]);
 
   const [liveData, setLiveData] = useState({
     laps: [],
@@ -18,7 +19,7 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Load telemetry news feed stream & authentic technical development feeds
+  // Load telemetry news feed stream, authentic technical development feeds, and predictions
   useEffect(() => {
     const fetchWireFeeds = async () => {
       try {
@@ -29,6 +30,11 @@ export default function App() {
         const upgradesRes = await fetch('http://localhost:8000/api/real-time-upgrades');
         const upgradesData = await upgradesRes.json();
         setUpgrades(upgradesData || []);
+
+        // Fetch dynamic season predictions
+        const predictRes = await fetch('http://localhost:8000/api/predict-gp');
+        const predictData = await predictRes.json();
+        setPredictions(predictData.predictions || []);
       } catch (err) {
         console.error("Failed loading layout stream pipelines", err);
       }
@@ -168,14 +174,14 @@ export default function App() {
       )}
 
       {/* Primary Module Navigation Tabs */}
-      <div className="flex border-b border-slate-800 mb-6 gap-2">
+      <div className="flex flex-wrap border-b border-slate-800 mb-6 gap-2">
         <button
           onClick={() => setActiveTab('timing')}
           className={`px-4 py-2 text-xs font-black uppercase border-b-2 tracking-wider transition-all ${
             activeTab === 'timing' ? 'border-[#e10600] text-white bg-[#141822]' : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          ⏱️ Live Timing & Telemetry
+          ⏱️ Live Timing
         </button>
         <button
           onClick={() => setActiveTab('upgrades')}
@@ -183,7 +189,15 @@ export default function App() {
             activeTab === 'upgrades' ? 'border-[#e10600] text-white bg-[#141822]' : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          🔧 Team Upgrade Matrix ({upgrades.length})
+          🔧 Upgrade Matrix ({upgrades.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('predictions')}
+          className={`px-4 py-2 text-xs font-black uppercase border-b-2 tracking-wider transition-all ${
+            activeTab === 'predictions' ? 'border-[#e10600] text-white bg-[#141822]' : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          🔮 Win Predictions
         </button>
         <button
           onClick={() => setActiveTab('news')}
@@ -191,7 +205,7 @@ export default function App() {
             activeTab === 'news' ? 'border-[#e10600] text-white bg-[#141822]' : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
-          📰 FIA News Wire ({news.length})
+          📰 FIA News ({news.length})
         </button>
       </div>
 
@@ -294,7 +308,60 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 3: NEWS WIRE */}
+          {/* TAB 3: WIN PREDICTIONS */}
+          {activeTab === 'predictions' && (
+            <div>
+              <div className="border-b border-slate-800 pb-3 mb-4">
+                <h2 className="text-md font-black text-white uppercase tracking-tight">Algorithmic Win Probability Matrix</h2>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
+                  Calculated dynamically via live season points standings factored against active technical upgrade headlines
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {predictions.map((p, idx) => (
+                  <div key={idx} className="bg-[#1f242d] border border-slate-800/60 p-4 rounded relative overflow-hidden">
+                    <div className="flex justify-between items-center mb-2 relative z-10">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-white uppercase tracking-tight">{p.driver}</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold">{p.team}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 uppercase tracking-widest">
+                          Form Score: {p.points} PTS
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                        {p.has_active_upgrade && (
+                          <span className="text-[9px] font-black text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded tracking-wide uppercase">
+                            ⚙️ UPGRADE BOOST
+                          </span>
+                        )}
+                        <span className="text-md font-black text-[#e10600] tracking-tighter">
+                          {p.probability}%
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar Container */}
+                    <div className="w-full bg-black/40 rounded-full h-2 overflow-hidden border border-slate-800 relative z-10">
+                      <div 
+                        className="bg-[#e10600] h-full rounded-full transition-all duration-500" 
+                        style={{ width: `${p.probability}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                {predictions.length === 0 && (
+                  <p className="text-xs text-slate-500 uppercase p-4">Standings data stream unpopulated.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: NEWS WIRE */}
           {activeTab === 'news' && (
             <div>
               <div className="border-b border-slate-800 pb-3 mb-4">

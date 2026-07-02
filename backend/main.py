@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import fastf1
 import pandas as pd
 from datetime import datetime
+from fastf1.ergast import Ergast
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'fastf1_cache')
 if not os.path.exists(CACHE_DIR):
@@ -48,10 +49,22 @@ def get_real_time_upgrades():
     try:
         feed = feedparser.parse(TECHNICAL_FEED_URL)
         upgrades_detected = []
+        
+        keywords = ["upgrades", "package", "wing", "floor", "sidepod", "fia doc", "diffuser", "chassis", "suspension", "brake", "aero", "engine", "power unit", "gearbox", "fuel", "tyre", "regulation", "directive"]
+
+        exclusion_keywords = ["says", "claims", "thinks", "believes", "blames", "rues", "criticizes", "downplays", "hoping", "fears", "warns", "predicts", "talks", "tribute", "announces", "signing", "contract", "transfer", "deal", "agreement", "ownership", "governance", "legal", "lawsuit", "litigation", "ban", "penalty", "fine", "suspension", "investigation", "probe", "review", "appeal", "hearing", "ruling", "decision"]
 
         for entry in feed.entries:
             title_lower = entry.title.lower()
-            if any(kw in title_lower for kw in ["upgraddes", "package", "wing", "floor", "sidepod", "fia doc"]):
+            summary_lower = entry.get("summary", "").lower()
+
+            has_tech_keyword = any(kw in title_lower or kw in summary_lower for kw in keywords)
+
+            is_gossip_opinion = any(kw in title_lower or kw in summary_lower for kw in exclusion_keywords)
+
+            has_quotes = '""' in entry.title or '""' in entry.title or "'" in entry.title
+
+            if has_tech_keyword and not is_gossip_opinion and not has_quotes:
                 upgrades_detected.append({
                     "headline": entry.title,
                     "source": "FIA Technical Submission Wire",
@@ -168,6 +181,60 @@ def get_historical_race_data(year: int, round_num: int):
         import traceback
         print(traceback.format_exc())
         return {"error": str(e), "positions": [], "laps": []}
+    
+@app.get("/api/predict-gp")
+def predict_upcoming_gp(weight_form: float = 0.6, weight_upgrades: float = 0.4):
+    
+    current_year = datetime.now().year
+    ergast = Ergast()
+
+    standings_data = ergast.get_driver_standings(season=current_year)
+    if not standings_data.content:
+        raise HTTPException(status_code=404, detail="Could not pull current standings.")
+    standings_df = standings_data.content[0]
+    max_points = standings_df['points'].max() if not standings_df.empty else 1
+
+    active_constructors = set(standings_df['constructorName'].unique())
+    live_upgrades = get_real_time_upgrades()
+
+    upgraded_teams = set()
+    for upgrade in live_upgrades:
+        headline_lower = upgrade.get("headline", "").lower()
+
+        for constructor in active_constructors:
+            if constructor.lower() in headline_lower:
+                upgraded_teams.add(constructor)
+    predictions = []
+    total_raw_score = 0.0
+
+    for _, row in standings_df.head(10).iterrows():
+        driver_name = f"{row['givenName']} {row['familyName']}"
+        team_name = row['constructorName']
+        current_points = row['points']
+
+        normalized_form = current_points / max_points
+
+        has_upgrade = team_name in upgraded_teams
+        upgrade_impact = 0.35 if has_upgrade else 0.0
+
+        raw_score = (weight_form * normalized_form) + (weight_upgrades * upgrade_impact)
+        total_raw_score += raw_score
+
+        predictions.append({
+            "driver": driver_name,
+            "team": team_name,
+            "points": current_points,
+            "has_active_upgrade": has_upgrade,
+            "raw_score": raw_score
+        })
+    
+    for p in predictions:
+        p["probability"] = round((p["raw_score"] / total_raw_score) * 100, 2) if total_raw_score > 0 else 0
+        p.pop("raw_score")
+
+    predictions.sort(key=lambda x: x["probability"], reverse=True)
+    return {"season_year": current_year, "predictions": predictions}
+
 
 
 @app.websocket("/ws/live")
